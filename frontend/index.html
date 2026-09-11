@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>driftwatch — dependency bump auditor</title>
+<style>
+  :root{
+    --bg:#0f1115;
+    --surface:#171a21;
+    --surface-2:#1d212a;
+    --border:#262b35;
+    --text:#e4e7ec;
+    --muted:#8a919e;
+    --accent:#6ea8fe;
+    --affected:#f0a868;
+    --not-affected:#6cc99a;
+    --unclear:#9aa3b2;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", monospace;
+    --sans: ui-sans-serif, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:var(--sans); font-size:14px; line-height:1.55;
+  }
+  header{
+    padding:20px 28px; border-bottom:1px solid var(--border);
+    display:flex; align-items:baseline; gap:14px; flex-wrap:wrap;
+  }
+  header h1{ font-size:16px; margin:0; font-weight:600; letter-spacing:-0.01em; }
+  header .tag{ font-family:var(--mono); font-size:11px; color:var(--accent); border:1px solid var(--border); padding:2px 7px; border-radius:4px; }
+  header p{ margin:0; color:var(--muted); font-size:13px; }
+
+  .wrap{ padding:22px 28px 60px; max-width:1500px; margin:0 auto; }
+
+  form{
+    display:grid; grid-template-columns:2fr 1fr 0.8fr 0.8fr 1.2fr auto; gap:10px;
+    align-items:end; background:var(--surface); border:1px solid var(--border);
+    border-radius:8px; padding:16px;
+  }
+  @media (max-width:1000px){ form{ grid-template-columns:1fr 1fr; } }
+  label{ display:block; font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin-bottom:5px; font-weight:600; }
+  input{
+    width:100%; background:var(--bg); border:1px solid var(--border); color:var(--text);
+    padding:8px 10px; border-radius:6px; font-family:var(--mono); font-size:12.5px;
+  }
+  input:focus{ outline:2px solid var(--accent); outline-offset:-1px; border-color:transparent; }
+  button{
+    background:var(--accent); color:#0b1020; border:0; padding:9px 18px; border-radius:6px;
+    font-weight:600; font-size:13px; cursor:pointer; font-family:var(--sans); white-space:nowrap;
+  }
+  button:hover{ filter:brightness(1.08); }
+  button:disabled{ opacity:.5; cursor:not-allowed; }
+  button:focus-visible{ outline:2px solid var(--text); outline-offset:2px; }
+
+  .presets{ display:flex; gap:8px; align-items:center; margin:14px 0 20px; flex-wrap:wrap; }
+  .presets span{ font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); font-weight:600; }
+  .preset{
+    background:transparent; color:var(--text); border:1px solid var(--border);
+    font-family:var(--mono); font-size:12px; padding:5px 11px; font-weight:400;
+  }
+  .preset:hover{ border-color:var(--accent); color:var(--accent); }
+
+  .panels{ display:grid; grid-template-columns:minmax(320px, 420px) 1fr; gap:18px; align-items:start; }
+  @media (max-width:980px){ .panels{ grid-template-columns:1fr; } }
+
+  .panel{ background:var(--surface); border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+  .panel-head{
+    padding:11px 16px; border-bottom:1px solid var(--border); background:var(--surface-2);
+    font-size:11px; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); font-weight:600;
+    display:flex; justify-content:space-between; align-items:center;
+  }
+  .panel-body{ padding:16px; }
+  .empty{ color:var(--muted); font-size:13px; font-style:italic; }
+
+  /* trace */
+  .step{ display:flex; gap:12px; padding:11px 0; border-bottom:1px solid var(--border); }
+  .step:last-child{ border-bottom:0; }
+  .step-num{
+    flex:0 0 22px; height:22px; border-radius:50%; background:var(--surface-2);
+    border:1px solid var(--border); display:flex; align-items:center; justify-content:center;
+    font-family:var(--mono); font-size:11px; color:var(--muted);
+  }
+  .step.running .step-num{ border-color:var(--accent); color:var(--accent); animation:pulse 1.2s ease-in-out infinite; }
+  .step.done .step-num{ border-color:var(--not-affected); color:var(--not-affected); }
+  @keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:.35;} }
+  @media (prefers-reduced-motion: reduce){ .step.running .step-num{ animation:none; } }
+  .step-body{ min-width:0; flex:1; }
+  .step-name{ font-family:var(--mono); font-size:13px; color:var(--accent); }
+  .step-args{ font-family:var(--mono); font-size:11.5px; color:var(--muted); margin-top:3px; word-break:break-word; }
+  .step-result{ font-size:12.5px; color:var(--text); margin-top:5px; }
+  .step-result::before{ content:"→ "; color:var(--muted); }
+
+  /* verdict */
+  #verdict{ font-size:13.5px; }
+  #verdict h3{ font-size:14px; margin:20px 0 8px; padding-top:14px; border-top:1px solid var(--border); }
+  #verdict h3:first-child{ margin-top:0; padding-top:0; border-top:0; }
+  #verdict h4{ font-size:13px; margin:16px 0 6px; color:var(--text); }
+  #verdict ul{ margin:6px 0; padding-left:18px; }
+  #verdict li{ margin:3px 0; }
+  #verdict p{ margin:6px 0; }
+  #verdict code{
+    font-family:var(--mono); font-size:12px; background:var(--surface-2);
+    border:1px solid var(--border); padding:1px 5px; border-radius:4px; word-break:break-word;
+  }
+  .pill{
+    display:inline-block; font-family:var(--mono); font-size:11px; font-weight:600;
+    padding:2px 8px; border-radius:4px; letter-spacing:.03em;
+  }
+  .pill.affected{ background:rgba(240,168,104,.14); color:var(--affected); border:1px solid rgba(240,168,104,.35); }
+  .pill.not-affected{ background:rgba(108,201,154,.13); color:var(--not-affected); border:1px solid rgba(108,201,154,.32); }
+  .pill.unclear{ background:rgba(154,163,178,.13); color:var(--unclear); border:1px solid rgba(154,163,178,.3); }
+
+  .error{ color:var(--affected); font-family:var(--mono); font-size:12.5px; white-space:pre-wrap; }
+  .cursor{ display:inline-block; width:7px; height:14px; background:var(--accent); vertical-align:text-bottom; animation:pulse .9s infinite; }
+</style>
+</head>
+<body>
+<header>
+  <h1>driftwatch</h1>
+  <span class="tag">strands</span>
+  <p>Reads how your code actually uses a library, then tells you whether a version bump touches it — per call site.</p>
+</header>
+
+<div class="wrap">
+  <form id="f">
+    <div>
+      <label for="repo_path">Repo path</label>
+      <input id="repo_path" value="fixtures/demo_repo" required>
+    </div>
+    <div>
+      <label for="library">Library</label>
+      <input id="library" value="urllib3" required>
+    </div>
+    <div>
+      <label for="from_version">From</label>
+      <input id="from_version" value="1.26.15" required>
+    </div>
+    <div>
+      <label for="to_version">To</label>
+      <input id="to_version" value="2.2.1" required>
+    </div>
+    <div>
+      <label for="github_repo">GitHub repo (optional)</label>
+      <input id="github_repo" placeholder="owner/name">
+    </div>
+    <button id="go" type="submit">Audit bump</button>
+  </form>
+
+  <div class="presets">
+    <span>Scenarios</span>
+    <button type="button" class="preset" data-p='["fixtures/demo_repo","urllib3","1.26.15","2.2.1",""]'>urllib3 → v2</button>
+    <button type="button" class="preset" data-p='["fixtures/demo_repo","requests","2.30.0","2.31.0",""]'>requests CVE fix</button>
+    <button type="button" class="preset" data-p='["fixtures/demo_repo","cryptography","42.0.0","46.0.3",""]'>cryptography (no releases)</button>
+  </div>
+
+  <div class="panels">
+    <div class="panel">
+      <div class="panel-head"><span>Reasoning trace</span><span id="tool-count"></span></div>
+      <div class="panel-body" id="trace"><div class="empty">Tool calls appear here as the agent chooses them.</div></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head">Verdict — per call site</div>
+      <div class="panel-body"><div id="verdict"><div class="empty">No audit run yet.</div></div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let source = null;
+
+function esc(s){
+  return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+
+// Minimal renderer for the markdown subset the agent actually emits.
+function renderMarkdown(md){
+  const lines = esc(md).split("\n");
+  let html = "", inList = false;
+  const inline = s => s
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  for (let raw of lines){
+    const line = raw.trimEnd();
+    const closeList = () => { if (inList){ html += "</ul>"; inList = false; } };
+    if (/^####\s+/.test(line)) { closeList(); html += "<h4>" + inline(line.replace(/^####\s+/,"")) + "</h4>"; }
+    else if (/^###\s+/.test(line)) { closeList(); html += "<h3>" + inline(line.replace(/^###\s+/,"")) + "</h3>"; }
+    else if (/^#{1,2}\s+/.test(line)) { closeList(); html += "<h3>" + inline(line.replace(/^#{1,2}\s+/,"")) + "</h3>"; }
+    else if (/^\s*[-*]\s+/.test(line)) {
+      if (!inList){ html += "<ul>"; inList = true; }
+      html += "<li>" + inline(line.replace(/^\s*[-*]\s+/,"")) + "</li>";
+    }
+    else if (line.trim() === "") { closeList(); }
+    else { closeList(); html += "<p>" + inline(line) + "</p>"; }
+  }
+  if (inList) html += "</ul>";
+  // Colorize verdict labels. "NOT AFFECTED" must be matched before "AFFECTED".
+  html = html
+    .replace(/\bNOT AFFECTED\b/g, '<span class="pill not-affected">NOT AFFECTED</span>')
+    .replace(/(?<!class="pill )\bAFFECTED\b(?![^<]*<\/span>)/g, '<span class="pill affected">AFFECTED</span>')
+    .replace(/\bUNCLEAR\b/g, '<span class="pill unclear">UNCLEAR</span>');
+  return html;
+}
+
+document.querySelectorAll(".preset").forEach(b => b.addEventListener("click", () => {
+  const [r, l, f, t, g] = JSON.parse(b.dataset.p);
+  $("repo_path").value = r; $("library").value = l;
+  $("from_version").value = f; $("to_version").value = t; $("github_repo").value = g;
+}));
+
+$("f").addEventListener("submit", e => {
+  e.preventDefault();
+  if (source) source.close();
+
+  const trace = $("trace"), verdict = $("verdict");
+  trace.innerHTML = ""; verdict.innerHTML = '<span class="cursor"></span>';
+  $("go").disabled = true; $("tool-count").textContent = "";
+
+  const steps = new Map();
+  let n = 0, answer = "";
+
+  const params = new URLSearchParams({
+    repo_path: $("repo_path").value,
+    library: $("library").value,
+    from_version: $("from_version").value,
+    to_version: $("to_version").value,
+    github_repo: $("github_repo").value,
+  });
+  source = new EventSource("/api/analyze?" + params);
+
+  source.addEventListener("tool_start", ev => {
+    const d = JSON.parse(ev.data);
+    n += 1;
+    const el = document.createElement("div");
+    el.className = "step running";
+    el.innerHTML = `<div class="step-num">${n}</div><div class="step-body">
+      <div class="step-name">${esc(d.name)}()</div>
+      <div class="step-args"></div><div class="step-result"></div></div>`;
+    trace.appendChild(el);
+    steps.set(d.id, el);
+    $("tool-count").textContent = n + (n === 1 ? " call" : " calls");
+  });
+
+  source.addEventListener("tool_args", ev => {
+    const d = JSON.parse(ev.data);
+    const el = steps.get(d.id);
+    if (!el || !d.input) return;
+    const args = typeof d.input === "string" ? d.input
+      : Object.entries(d.input).filter(([,v]) => v !== "" && v != null)
+          .map(([k,v]) => `${k}=${JSON.stringify(v)}`).join("  ");
+    el.querySelector(".step-args").textContent = args;
+  });
+
+  source.addEventListener("tool_done", ev => {
+    const d = JSON.parse(ev.data);
+    const el = steps.get(d.id);
+    if (!el) return;
+    el.className = "step done";
+    el.querySelector(".step-result").textContent = d.summary;
+  });
+
+  source.addEventListener("text", ev => {
+    answer += JSON.parse(ev.data).chunk;
+    verdict.innerHTML = renderMarkdown(answer) + '<span class="cursor"></span>';
+  });
+
+  source.addEventListener("done", () => {
+    verdict.innerHTML = renderMarkdown(answer) || '<div class="empty">No answer returned.</div>';
+    source.close(); $("go").disabled = false;
+  });
+
+  source.addEventListener("error", ev => {
+    let msg = "Connection to the server was lost.";
+    try { if (ev.data) msg = JSON.parse(ev.data).message; } catch(_) {}
+    verdict.innerHTML = '<div class="error">' + esc(msg) + "</div>";
+    source.close(); $("go").disabled = false;
+  });
+});
+</script>
+</body>
+</html>

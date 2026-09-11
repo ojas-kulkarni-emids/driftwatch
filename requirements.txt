@@ -1,0 +1,7 @@
+strands-agents[openai]
+openai
+requests
+packaging
+python-dotenv
+fastapi
+uvicorn[standard]

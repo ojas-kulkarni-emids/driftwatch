@@ -6,6 +6,80 @@ Format and conventions: see [CLAUDE.md](CLAUDE.md).
 
 ## Entries
 
+### 2026-09-14 — Dropped the demo-handoff slide from the deck
+
+**What changed.** Removed the fifth slide ("Demo handoff") from `docs/deck.html`, then stripped the
+CSS it left behind. The deck is now four slides and ends on the architecture slide. 593 → 525 lines.
+
+Dead code removed: the slide's rule block (`.demo-grid`, `.demo-script`, `.bar`, `.demo-body`,
+`.watch-list`, `.watch`, `.handoff`), three orphan rules that were already unreferenced before this
+change (`h1 .dim`, `.mono`, `.pill.u`), and three unused custom properties — `--surface-3` and
+`--ok`, plus `--unclear`, which only `.pill.u` consumed.
+
+**Why.** Requested — the handoff slide restated in text what the live walkthrough shows anyway.
+
+**Correction.** The entry below describes a five-slide deck. That is no longer accurate.
+
+**Verification.** Dead selectors found by diffing classes declared in `<style>` against classes
+referenced in the markup and JS, not by eyeballing the removed slide — that's what surfaced the
+three orphans predating this change. After the strip, the same diff reports nothing dead, braces
+balance at 64/64, and no empty rules remain. All four slides re-rendered headlessly through Edge at
+1280×720; the architecture slide's PNG is byte-identical (same MD5) to the pre-cleanup render, so
+the CSS removal changed no pixels. Navigation needed no change — it derives entirely from
+`slides.length`, with no hardcoded count.
+
+**Files.** `docs/deck.html`
+
+---
+
+### 2026-09-14 - Reworked demo intro deck
+
+**What changed.** Replaced `docs/deck.html` with a cleaner five-slide intro deck: product context,
+the dependency-review gap, per-call-site output, the local-scan/agent architecture, and a final
+demo handoff slide.
+
+**Why.** The demo video needs a short setup that lands directly in the browser walkthrough. The
+new ending tells the presenter exactly what to show next instead of stopping on architecture.
+
+**Verification.** Checked that `docs/deck.html` contains five slides and no non-ASCII rendering
+artifacts. Did not browser-record the deck.
+
+**Files.** `docs/deck.html`
+
+---
+
+### 2026-09-14 — Demo deck for the submission video
+
+**What changed.** Added `docs/deck.html`, a self-contained four-slide deck (problem / who it's for /
+why it matters / architecture) for screen-recording alongside the live demo. No build step, no
+external assets. Reuses the app's exact palette from `frontend/index.html` so the slides and the
+running product read as one thing on video. Fixed 1280×720 stage scaled to the viewport, so the
+layout that gets rehearsed is the layout that records at any window size. Arrow/space/click
+navigation, `F` for fullscreen, and `#n` deep links for jumping to a slide while rehearsing.
+
+**Why.** The video needs framing slides around the live walkthrough, and the existing
+`docs/architecture.png` could not serve as the architecture slide — see the correction below.
+
+**Correction: the committed architecture diagram is out of date.** `docs/architecture.html` and the
+`docs/architecture.png` rendered from it show **four** tools. Six have shipped since — they predate
+`list_dependencies` and `post_verdict`. The README embeds that PNG, so the diagram in the repo
+currently understates the project. The deck's architecture slide is a fresh inline SVG showing all
+six, split into the three that touch local disk and the three that call the GitHub API.
+`docs/architecture.html` / `.png` and the README embed are still stale and need the same treatment.
+
+**Verification.** All four slides rendered headlessly through Edge at 1280×720 and inspected as
+images, not just read as source. Two layout issues found that way and fixed: slides sat high with
+dead space beneath them (fixed with `justify-content:center`, a no-op on the architecture slide
+whose diagram is `flex:1`), and the AFFECTED/NOT AFFECTED pills were too low-chroma to survive video
+compression (saturation raised). Every fact on the slides traced to the repo rather than written
+from memory: fixture line numbers confirmed with `grep -n` (`crypto_utils.py:24` Blowfish,
+`:30` AES), and the 4,212-file / 12.1s measurement taken from ROADMAP item 4. Not verified: how the
+deck looks in a real recording, or in any browser other than Edge.
+
+**Files.** `docs/deck.html`
+
+---
+
 ### 2026-09-14 — All five roadmap items completed
 
 **What changed.** PyPI → GitHub repo resolution with per-process caching and an import-name /

@@ -1,0 +1,525 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>driftwatch - intro deck</title>
+<style>
+  :root{
+    --bg:#0f1115;
+    --surface:#171a21;
+    --surface-2:#1d212a;
+    --border:#2b313d;
+    --text:#e7eaf0;
+    --muted:#9aa3b2;
+    --quiet:#687282;
+    --accent:#6ea8fe;
+    --affected:#f0a868;
+    --mono:ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", monospace;
+    --sans:ui-sans-serif, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0;
+    background:#07080b;
+    color:var(--text);
+    font-family:var(--sans);
+    overflow:hidden;
+  }
+  #fit{position:absolute; inset:0;}
+  #stage{
+    position:absolute;
+    top:0;
+    left:0;
+    width:1280px;
+    height:720px;
+    transform-origin:top left;
+    background:
+      linear-gradient(180deg, rgba(110,168,254,.07), transparent 36%),
+      var(--bg);
+    overflow:hidden;
+  }
+  .slide{
+    position:absolute;
+    inset:0;
+    display:none;
+    flex-direction:column;
+    justify-content:center;
+    padding:64px 76px 78px;
+  }
+  .slide.on{display:flex;}
+  .eyebrow{
+    margin:0 0 18px;
+    color:var(--accent);
+    font-size:13px;
+    font-weight:750;
+    letter-spacing:.13em;
+    text-transform:uppercase;
+  }
+  h1{
+    max-width:1080px;
+    margin:0 0 18px;
+    font-size:47px;
+    line-height:1.13;
+    font-weight:760;
+    letter-spacing:0;
+  }
+  h1.tight{font-size:39px;}
+  .sub{
+    max-width:940px;
+    margin:0 0 32px;
+    color:var(--muted);
+    font-size:20px;
+    line-height:1.45;
+  }
+  code{font-family:var(--mono);}
+  .grid-2{display:grid; grid-template-columns:1fr 1fr; gap:22px;}
+  .card{
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:8px;
+    padding:22px 24px;
+  }
+  .card b{
+    display:block;
+    margin-bottom:9px;
+    color:var(--text);
+    font-size:20px;
+    letter-spacing:0;
+  }
+  .card p, .card span{
+    margin:0;
+    color:var(--muted);
+    font-size:15.5px;
+    line-height:1.48;
+  }
+  .pill{
+    display:inline-block;
+    padding:3px 9px;
+    border-radius:4px;
+    font-family:var(--mono);
+    font-size:11px;
+    font-weight:800;
+    letter-spacing:.04em;
+    white-space:nowrap;
+  }
+  .pill.a{color:#f6bd82; background:rgba(240,168,104,.19); border:1px solid rgba(240,168,104,.52);}
+  .pill.n{color:#82d8ac; background:rgba(108,201,154,.17); border:1px solid rgba(108,201,154,.48);}
+  .foot{
+    position:absolute;
+    left:76px;
+    right:76px;
+    bottom:26px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    color:var(--quiet);
+    font-size:13px;
+  }
+  .foot .brand{font-family:var(--mono);}
+  .foot b{color:var(--accent);}
+  .dots{display:flex; gap:7px;}
+  .dot{width:7px; height:7px; border-radius:50%; background:var(--border);}
+  .dot.on{background:var(--accent);}
+  #hint{
+    position:fixed;
+    bottom:14px;
+    left:50%;
+    transform:translateX(-50%);
+    z-index:10;
+    color:#5c6371;
+    font-size:12px;
+    transition:opacity .5s;
+  }
+
+  .title-lockup{
+    display:flex;
+    align-items:flex-start;
+    gap:30px;
+  }
+  .mark{
+    width:124px;
+    height:124px;
+    flex:0 0 124px;
+    border:1px solid rgba(110,168,254,.55);
+    border-radius:18px;
+    background:linear-gradient(145deg, rgba(110,168,254,.23), rgba(108,201,154,.12));
+    display:grid;
+    place-items:center;
+    box-shadow:0 22px 70px rgba(0,0,0,.24);
+  }
+  .mark svg{width:78px; height:78px;}
+  .hero-note{
+    max-width:880px;
+    margin-top:18px;
+    padding:18px 22px;
+    border:1px solid var(--border);
+    border-left:4px solid var(--accent);
+    border-radius:8px;
+    background:rgba(29,33,42,.78);
+    color:var(--text);
+    font-size:19px;
+    line-height:1.45;
+  }
+  .hero-note b{color:var(--accent);}
+
+  .pr{
+    max-width:820px;
+    margin-bottom:28px;
+    padding:18px 22px;
+    border:1px solid var(--border);
+    border-radius:8px;
+    background:var(--surface);
+    display:flex;
+    align-items:center;
+    gap:18px;
+  }
+  .pr-icon{
+    width:42px;
+    height:42px;
+    border-radius:8px;
+    background:rgba(110,168,254,.14);
+    border:1px solid rgba(110,168,254,.36);
+    color:var(--accent);
+    display:grid;
+    place-items:center;
+    font-family:var(--mono);
+    font-weight:800;
+    font-size:21px;
+  }
+  .pr-title{font-family:var(--mono); font-size:19px; font-weight:750;}
+  .pr-meta{margin-top:5px; color:var(--muted); font-size:14px;}
+  .choice{border-left:3px solid var(--affected);}
+  .question{
+    max-width:920px;
+    margin:0 0 28px;
+    padding-left:18px;
+    border-left:3px solid var(--accent);
+    color:var(--text);
+    font-size:21px;
+    line-height:1.42;
+  }
+
+  .verdict-box{padding:0; overflow:hidden;}
+  .verdict-head{
+    display:grid;
+    grid-template-columns:170px 1fr 150px;
+    gap:12px;
+    padding:11px 18px;
+    background:var(--surface-2);
+    border-bottom:1px solid var(--border);
+    color:var(--muted);
+    font-size:11px;
+    font-weight:800;
+    letter-spacing:.08em;
+    text-transform:uppercase;
+  }
+  .verdict-row{
+    display:grid;
+    grid-template-columns:170px 1fr 150px;
+    gap:12px;
+    align-items:center;
+    padding:16px 18px;
+    border-bottom:1px solid var(--border);
+  }
+  .verdict-row:last-child{border-bottom:0;}
+  .verdict-row code{
+    color:var(--text);
+    font-size:13px;
+    line-height:1.35;
+  }
+  .loc{font-family:var(--mono); color:var(--muted); font-size:13px;}
+  .workflow{
+    margin-top:26px;
+    display:grid;
+    grid-template-columns:repeat(4, 1fr);
+    gap:12px;
+  }
+  .step{
+    min-height:108px;
+    padding:16px;
+    border:1px solid var(--border);
+    border-radius:8px;
+    background:var(--surface);
+  }
+  .step b{display:block; font-size:16px; margin-bottom:7px;}
+  .step span{color:var(--muted); font-size:13.5px; line-height:1.42;}
+
+  .architecture{
+    display:grid;
+    grid-template-columns:1fr 1.05fr;
+    gap:24px;
+    align-items:stretch;
+  }
+  .trace{
+    display:flex;
+    flex-direction:column;
+    gap:11px;
+  }
+  .trace-line{
+    display:grid;
+    grid-template-columns:34px 1fr;
+    gap:12px;
+    align-items:start;
+    padding:14px 16px;
+    border:1px solid var(--border);
+    border-radius:8px;
+    background:var(--surface);
+  }
+  .trace-line .badge{
+    width:28px;
+    height:28px;
+    border-radius:50%;
+    border:1px solid rgba(110,168,254,.46);
+    color:var(--accent);
+    display:grid;
+    place-items:center;
+    font-family:var(--mono);
+    font-size:12px;
+    font-weight:800;
+  }
+  .trace-line b{display:block; margin-bottom:5px; font-size:16px;}
+  .trace-line span{display:block; color:var(--muted); font-size:13.5px; line-height:1.42;}
+  .diagram{
+    min-height:330px;
+    border:1px solid var(--border);
+    border-radius:8px;
+    background:rgba(23,26,33,.78);
+    padding:22px;
+  }
+  .diagram svg{width:100%; height:100%;}
+  svg .box{fill:#171a21; stroke:#313947; stroke-width:1.5;}
+  svg .agent{fill:#142034; stroke:#6ea8fe; stroke-width:1.8;}
+  svg .local{fill:#13211a; stroke:#6cc99a; stroke-width:1.5;}
+  svg .net{fill:#211b14; stroke:#f0a868; stroke-width:1.5;}
+  svg .ln{stroke:#566073; stroke-width:1.7; fill:none;}
+  svg .t{font:700 15px var(--sans); fill:#e7eaf0;}
+  svg .s{font:400 12.5px var(--sans); fill:#9aa3b2;}
+  svg .m{font:700 13px var(--mono); fill:#e7eaf0;}
+</style>
+</head>
+<body>
+<div id="fit"><div id="stage">
+
+  <section class="slide on">
+    <p class="eyebrow">Intro</p>
+    <div class="title-lockup">
+      <div class="mark" aria-hidden="true">
+        <svg viewBox="0 0 80 80">
+          <path d="M15 52 L29 38 L40 47 L63 22" fill="none" stroke="#6ea8fe" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M15 61 H64" stroke="#6cc99a" stroke-width="6" stroke-linecap="round"/>
+          <circle cx="29" cy="38" r="5" fill="#e7eaf0"/>
+          <circle cx="40" cy="47" r="5" fill="#e7eaf0"/>
+          <circle cx="63" cy="22" r="5" fill="#e7eaf0"/>
+        </svg>
+      </div>
+      <div>
+        <h1>DriftWatch audits dependency bumps against the code you actually wrote.</h1>
+        <p class="sub">Dependabot and Renovate can tell you a package changed. driftwatch tells you whether that specific change touches your call sites, with evidence you can review before clicking merge.</p>
+      </div>
+    </div>
+    <div class="hero-note">
+      The goal is simple: move dependency PRs out of the stale queue without asking engineers to read every changelog by hand.
+    </div>
+    <div class="foot">
+      <span class="brand"><b>driftwatch</b> - dependency bump auditor</span>
+      <span class="dots"></span>
+    </div>
+  </section>
+
+  <section class="slide">
+    <p class="eyebrow">The gap</p>
+    <h1>A version change is not the same thing as a risk assessment.</h1>
+    <div class="pr">
+      <div class="pr-icon">UP</div>
+      <div>
+        <div class="pr-title">Bump urllib3 from 1.26.15 to 2.2.1</div>
+        <div class="pr-meta">The bot compares versions and security databases. It does not inspect your repo.</div>
+      </div>
+    </div>
+    <p class="question">The reviewer still has to answer the useful question: does this bump touch the way our code uses the library?</p>
+    <div class="grid-2">
+      <div class="card choice">
+        <b>Merge blind</b>
+        <p>The PR is small, the checks are green, and the real compatibility work gets pushed into production risk.</p>
+      </div>
+      <div class="card choice">
+        <b>Let it sit</b>
+        <p>The team avoids the unknown, the CVE remains open, and dependency drift keeps accumulating.</p>
+      </div>
+    </div>
+    <div class="foot">
+      <span class="brand"><b>driftwatch</b> - dependency bump auditor</span>
+      <span class="dots"></span>
+    </div>
+  </section>
+
+  <section class="slide">
+    <p class="eyebrow">What it returns</p>
+    <h1 class="tight">A verdict per call site, not a vague thumbs-up for the whole repo.</h1>
+    <div class="card verdict-box">
+      <div class="verdict-head">
+        <span>Location</span>
+        <span>Code</span>
+        <span>Verdict</span>
+      </div>
+      <div class="verdict-row">
+        <span class="loc">crypto_utils.py:24</span>
+        <code>Cipher(algorithms.Blowfish(key), modes.CBC(iv))</code>
+        <span class="pill a">AFFECTED</span>
+      </div>
+      <div class="verdict-row">
+        <span class="loc">crypto_utils.py:30</span>
+        <code>Cipher(algorithms.AES(key), modes.CBC(iv))</code>
+        <span class="pill n">NOT AFFECTED</span>
+      </div>
+    </div>
+    <div class="workflow">
+      <div class="step">
+        <b>1. Read dependencies</b>
+        <span>Find pinned packages from requirements.txt or pyproject.toml.</span>
+      </div>
+      <div class="step">
+        <b>2. Find usage</b>
+        <span>Run a deterministic AST scan for imports, aliases, clients, and calls.</span>
+      </div>
+      <div class="step">
+        <b>3. Gather evidence</b>
+        <span>Read release notes, changelog files, and issues when the notes are vague.</span>
+      </div>
+      <div class="step">
+        <b>4. Explain the call</b>
+        <span>Return AFFECTED, NOT AFFECTED, or UNCLEAR with the code that drove it.</span>
+      </div>
+    </div>
+    <div class="foot">
+      <span class="brand"><b>driftwatch</b> - dependency bump auditor</span>
+      <span class="dots"></span>
+    </div>
+  </section>
+
+  <section class="slide">
+    <p class="eyebrow">Why the design matters</p>
+    <h1 class="tight">The repo is scanned locally. The agent only sees the evidence it needs.</h1>
+    <div class="architecture">
+      <div class="trace">
+        <div class="trace-line">
+          <div class="badge">01</div>
+          <div><b>The full repo never enters model context.</b><span>Python AST scanning happens locally first. Cost scales with how much one library is used, not with repo size.</span></div>
+        </div>
+        <div class="trace-line">
+          <div class="badge">02</div>
+          <div><b>The tool sequence is not hardcoded.</b><span>A clear changelog can stop early. Ambiguous call sites trigger more file context. Missing release notes send it to changelog files or issues.</span></div>
+        </div>
+        <div class="trace-line">
+          <div class="badge">03</div>
+          <div><b>The UI shows the reasoning trace live.</b><span>During the audit, you can watch which tools the Strands agent selected and why the final answer has enough evidence.</span></div>
+        </div>
+        <div class="trace-line">
+          <div class="badge">04</div>
+          <div><b>It avoids over-claiming.</b><span>When a changelog is unclear, the correct output is UNCLEAR, not fake confidence.</span></div>
+        </div>
+      </div>
+      <div class="diagram" aria-hidden="true">
+        <svg viewBox="0 0 520 430" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+              <path d="M0,0 L10,5 L0,10 z" fill="#566073"/>
+            </marker>
+          </defs>
+          <rect class="box" x="142" y="12" width="236" height="58" rx="8"/>
+          <text class="t" x="260" y="36" text-anchor="middle">Browser UI</text>
+          <text class="s" x="260" y="55" text-anchor="middle">form + live trace + verdict</text>
+
+          <line class="ln" x1="260" y1="70" x2="260" y2="113" marker-end="url(#arrow)"/>
+          <rect class="agent" x="98" y="114" width="324" height="72" rx="8"/>
+          <text class="t" x="260" y="143" text-anchor="middle">FastAPI + Strands Agent</text>
+          <text class="s" x="260" y="164" text-anchor="middle">chooses tools per bump</text>
+
+          <line class="ln" x1="174" y1="186" x2="108" y2="240" marker-end="url(#arrow)"/>
+          <line class="ln" x1="346" y1="186" x2="412" y2="240" marker-end="url(#arrow)"/>
+
+          <rect class="local" x="20" y="242" width="210" height="138" rx="8"/>
+          <text class="m" x="125" y="270" text-anchor="middle">Local repo tools</text>
+          <text class="s" x="125" y="296" text-anchor="middle">find_usages</text>
+          <text class="s" x="125" y="316" text-anchor="middle">get_file_context</text>
+          <text class="s" x="125" y="336" text-anchor="middle">list_dependencies</text>
+          <text class="s" x="125" y="360" text-anchor="middle">whole repo stays local</text>
+
+          <rect class="net" x="290" y="242" width="210" height="138" rx="8"/>
+          <text class="m" x="395" y="270" text-anchor="middle">External evidence</text>
+          <text class="s" x="395" y="296" text-anchor="middle">get_changelog</text>
+          <text class="s" x="395" y="316" text-anchor="middle">search_github_issues</text>
+          <text class="s" x="395" y="336" text-anchor="middle">post_verdict</text>
+          <text class="s" x="395" y="360" text-anchor="middle">GitHub API</text>
+
+          <rect class="box" x="72" y="398" width="376" height="24" rx="6"/>
+          <text class="s" x="260" y="415" text-anchor="middle">Only call-site snippets + changelog evidence reach the model.</text>
+        </svg>
+      </div>
+    </div>
+    <div class="foot">
+      <span class="brand"><b>driftwatch</b> - dependency bump auditor</span>
+      <span class="dots"></span>
+    </div>
+  </section>
+
+</div></div>
+
+<div id="hint">Left / Right to navigate - F for fullscreen</div>
+
+<script>
+const slides = Array.from(document.querySelectorAll(".slide"));
+let current = 0;
+
+document.querySelectorAll(".dots").forEach(container => {
+  container.innerHTML = slides.map(() => '<span class="dot"></span>').join("");
+});
+
+function show(index){
+  current = Math.max(0, Math.min(slides.length - 1, index));
+  slides.forEach((slide, i) => slide.classList.toggle("on", i === current));
+  document.querySelectorAll(".dots").forEach(container => {
+    Array.from(container.children).forEach((dot, i) => dot.classList.toggle("on", i === current));
+  });
+  history.replaceState(null, "", "#" + (current + 1));
+}
+
+function fit(){
+  const scale = Math.min(innerWidth / 1280, innerHeight / 720);
+  const stage = document.getElementById("stage");
+  stage.style.transform = `translate(${(innerWidth - 1280 * scale) / 2}px, ${(innerHeight - 720 * scale) / 2}px) scale(${scale})`;
+}
+
+addEventListener("keydown", event => {
+  if (event.key === "ArrowRight" || event.key === " " || event.key === "PageDown") {
+    show(current + 1);
+    event.preventDefault();
+  } else if (event.key === "ArrowLeft" || event.key === "PageUp") {
+    show(current - 1);
+    event.preventDefault();
+  } else if (event.key === "Home") {
+    show(0);
+  } else if (event.key === "End") {
+    show(slides.length - 1);
+  } else if (event.key.toLowerCase() === "f") {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else document.documentElement.requestFullscreen();
+  }
+});
+
+addEventListener("click", event => {
+  if (!event.target.closest("a")) show(current + 1);
+});
+
+addEventListener("resize", fit);
+fit();
+show(parseInt(location.hash.slice(1), 10) - 1 || 0);
+
+setTimeout(() => {
+  document.getElementById("hint").style.opacity = "0";
+}, 4000);
+</script>
+</body>
+</html>

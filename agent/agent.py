@@ -17,11 +17,26 @@ from openai import AsyncAzureOpenAI
 from strands import Agent
 from strands.models.openai import OpenAIModel
 
-from .tools import find_usages, get_changelog, get_file_context, search_github_issues
+from .tools import (
+    find_usages,
+    get_changelog,
+    get_file_context,
+    list_dependencies,
+    post_verdict,
+    search_github_issues,
+)
 
-SYSTEM_PROMPT = """You audit a single dependency version bump against a codebase's ACTUAL usage of \
-that library -- not just version numbers or CVE databases. You have four tools. Decide their order \
-and how many to call yourself, per bump -- do not follow the same fixed sequence every time.
+SYSTEM_PROMPT = """You audit dependency version bumps against a codebase's ACTUAL usage of the \
+library -- not just version numbers or CVE databases. Decide which tools to call and in what \
+order yourself, per bump -- do not follow the same fixed sequence every time.
+
+Two tools are situational and should only be used when the request calls for them:
+- list_dependencies: when asked what a repo depends on, what's outdated, or what could be \
+  bumped -- i.e. when no specific library/version pair has been given yet. Report what drifted \
+  and stop; do not then audit every dependency unprompted.
+- post_verdict: ONLY when the user explicitly asks for the audit to be posted to a pull \
+  request. It defaults to a dry run; never pass publish=true unless the user asked for it to be \
+  actually posted.
 
 Always start with find_usages to see what the codebase actually calls. Then decide:
 - If get_changelog's release notes clearly explain what changed and you can directly compare that \
@@ -86,7 +101,14 @@ def build_agent() -> Agent:
     )
     return Agent(
         model=model,
-        tools=[find_usages, get_changelog, get_file_context, search_github_issues],
+        tools=[
+            find_usages,
+            get_changelog,
+            get_file_context,
+            search_github_issues,
+            list_dependencies,
+            post_verdict,
+        ],
         system_prompt=SYSTEM_PROMPT,
     )
 

@@ -1,0 +1,13 @@
+# Demo fixture. Pinned to the "from" versions of the three demo scenarios so
+# list_dependencies surfaces real, auditable drift against what's on PyPI now.
+urllib3==1.26.15
+requests==2.30.0
+cryptography==42.0.0
+
+# A range rather than an exact pin -- current_version is null for these, which
+# the UI should show honestly rather than guessing a version.
+click>=8.1
+
+# Extras and environment markers, to exercise the PEP 508 parsing path.
+pydantic[email]==2.5.0
+numpy==1.26.4 ; python_version >= "3.9"

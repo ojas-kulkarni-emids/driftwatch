@@ -65,10 +65,18 @@ The live reasoning trace in the UI shows this happening in real time.
 
 | Tool | What it does | Touches |
 |---|---|---|
-| `find_usages` | AST scan of every `.py` file. Resolves import aliases (`import requests as req`) and instance chains (`http = urllib3.PoolManager()` → `http.request()` → `resp.getheader()`) so usage is caught even when the line never names the library. | Local disk |
-| `get_changelog` | Real release notes for the version range. Tries the GitHub Releases API, then falls back to the repo's own `CHANGELOG.rst`/`.md` — necessary because publishing Releases is optional and some major projects never do. | GitHub API |
+| `find_usages` | Two-pass AST scan of every `.py` file. Resolves import aliases (`import requests as req`), instance chains (`http = urllib3.PoolManager()` → `http.request()` → `resp.getheader()`), and **shared clients imported from other modules** (`from clients import http`) — so usage is caught even when the line never names the library. | Local disk |
+| `get_changelog` | Real release notes for the version range, paginated. Tries the GitHub Releases API, then falls back to the repo's own `CHANGELOG.rst`/`.md` — necessary because publishing Releases is optional and some major projects never do. | GitHub API |
 | `get_file_context` | Widens the view around one already-identified `file:line`. Cannot browse — it only sees locations `find_usages` already returned. | Local disk |
 | `search_github_issues` | Searches the library's issues/PRs when the changelog is vague or absent. | GitHub API |
+| `list_dependencies` | Reads `requirements.txt` / `pyproject.toml` and checks PyPI for newer versions — answers "what could move" before you audit anything. Drives the **Scan repo** button. | Local disk + PyPI |
+| `post_verdict` | Formats the audit as a PR comment. Dry-runs by default; posting needs a write-scoped token. | GitHub API |
+
+Any library resolves automatically via PyPI — no configuration needed. Verified on `fastapi`,
+`pandas`, `boto3`, `sqlalchemy`, `httpx`, `sklearn`, and others.
+
+**Performance:** measured over a 4,212-file corpus — 12.1s for `urllib3` (116 call sites across
+15 files), 3.8s for `requests`. The scan is the cheap part; only the matched snippets reach the model.
 
 ---
 
@@ -203,18 +211,16 @@ Azure needs the `client=` injection currently in `agent.py` rather than `client_
 Stated plainly, because a tool that reports on correctness should be honest about its own.
 
 - **Python only.** `find_usages` uses Python's `ast`. No JS/Go/Java.
-- **No PyPI → GitHub resolution.** Eight libraries are hardcoded; anything else needs the repo
-  supplied manually.
-- **No cross-file instance tracking.** If a client is created in one module and imported into
-  another, usages in the second file aren't traced back to the library.
-- **No scope awareness.** Variable tracking is a flat, single-pass, order-dependent heuristic,
-  not type inference. Two functions reusing a variable name for different things can confuse it.
+- **No scope awareness.** Variable tracking is a flat per-file heuristic, not type inference. Two
+  functions reusing a variable name for different things can confuse it.
 - **Verdicts are LLM judgment, not verification.** Nothing executes your code against both
   library versions. Accuracy is bounded by how well the changelog documents the change in prose.
-- **Untested at scale.** Correctness is verified on small fixtures; performance on a
-  several-hundred-file repo is unmeasured.
 - **Dependent lines still get their own rows.** A line using an object created by an affected
   line is reported separately rather than folded into the root finding.
+- **`post_verdict` is untested against a real PR.** The dry run is verified; live posting needs a
+  write-scoped token, which the setup above deliberately does not ask for.
+- **Cross-file tracking is single-pass and order-dependent.** It follows `from clients import
+  http`, but not lineage laundered through a function return in a third module.
 
 See [ROADMAP.md](ROADMAP.md) for which of these are being worked on.
 

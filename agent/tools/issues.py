@@ -9,7 +9,7 @@ import os
 import requests as http
 from strands import tool
 
-from .changelog import _KNOWN_REPOS, _headers
+from .changelog import _headers, _unresolved_error, resolve_repo
 
 GITHUB_API = "https://api.github.com"
 
@@ -28,12 +28,9 @@ def search_github_issues(library: str, terms: str, github_repo: str = "") -> dic
         terms: Free-text search terms describing the behavior in question.
         github_repo: Optional "owner/repo" override if the library isn't in the built-in mapping.
     """
-    repo = github_repo or _KNOWN_REPOS.get(library.lower())
+    repo = resolve_repo(library, github_repo)
     if not repo:
-        return {
-            "status": "error",
-            "content": [{"text": f"No known GitHub repo for '{library}'. Pass github_repo explicitly."}],
-        }
+        return _unresolved_error(library)
 
     query = f"repo:{repo} {terms}"
     try:

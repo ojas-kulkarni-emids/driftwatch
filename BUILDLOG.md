@@ -6,6 +6,48 @@ Format and conventions: see [CLAUDE.md](CLAUDE.md).
 
 ## Entries
 
+### 2026-09-14 — All five roadmap items completed
+
+**What changed.** PyPI → GitHub repo resolution with per-process caching and an import-name /
+package-name alias map; a new `list_dependencies` tool plus a "Scan repo" UI mode backed by
+`GET /api/dependencies`; two-pass cross-file instance tracking in `find_usages`; a new
+`post_verdict` tool that dry-runs by default; and a scale measurement that produced a 5.5x
+speedup. Six tools are now registered with the agent, up from four.
+
+**Why.** The hardcoded eight-library map was the most visible fragility in the product — anyone
+typing `fastapi` or `pandas` hit a wall. Cross-file tracking closed the gap on the shared-client
+pattern that nearly every production codebase uses. `list_dependencies` moves the product from
+"audit the one bump you already knew about" to "point it at a repo and see what drifted".
+
+**Verification.** Every item verified against real data:
+- Resolution: `fastapi`, `boto3`, `pandas`, `sqlalchemy`, `yaml`, `sklearn`, `rich`, `httpx`,
+  `pytest` all resolve unaided. `bs4` correctly returns None (BeautifulSoup isn't on GitHub).
+- Cross-file: `fixtures/crossfile_repo` — `service.py` and `pkg/nested.py` correctly attributed
+  to urllib3 despite never naming it, including via a relative import.
+- Scale: 4,212-file corpus. urllib3 67.4s → 12.1s, requests 14.1s → 3.8s, cryptography 11.6s
+  (1,723 call sites). Results byte-identical before and after the optimisation.
+- Full agent run against the cross-file repo produced correct per-call-site verdicts.
+- Both original fixtures regression-clean throughout.
+
+**Two bugs this work surfaced, both real:**
+1. `get_changelog` fetched only the first page of GitHub Releases. For an actively-released
+   library like FastAPI, the 100 most recent releases were all *newer* than the requested range,
+   so it silently returned nothing. Now paginated with truncation reporting.
+2. The first scale measurement took 67 seconds because both passes parsed and fully walked every
+   file, including thousands never mentioning the library. A raw-text pre-filter before parsing is
+   sound — an import statement must literally contain the module name — and cut it to 12s.
+
+Also fixed: `max_files` truncated silently, presenting a partial scan as if complete. It now
+reports how many files went unscanned.
+
+**Files.** `agent/tools/changelog.py`, `agent/tools/dependencies.py` (new),
+`agent/tools/verdict.py` (new), `agent/tools/usages.py`, `agent/tools/issues.py`,
+`agent/tools/__init__.py`, `agent/agent.py`, `server.py`, `frontend/index.html`,
+`fixtures/demo_repo/requirements.txt` (new), `fixtures/crossfile_repo/` (new),
+`tests/test_tools.py`, `ROADMAP.md`
+
+---
+
 ### 2026-09-11 — Project documentation
 
 **What changed.** Wrote README.md (product, architecture, full setup instructions, known

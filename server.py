@@ -19,6 +19,7 @@ from fastapi import FastAPI  # noqa: E402
 from fastapi.responses import HTMLResponse, StreamingResponse  # noqa: E402
 
 from agent.agent import build_agent  # noqa: E402
+from agent.tools.dependencies import list_dependencies  # noqa: E402
 
 app = FastAPI(title="driftwatch")
 FRONTEND = Path(__file__).parent / "frontend" / "index.html"
@@ -58,6 +59,16 @@ def _summarize_tool_result(tool_result: dict) -> str:
 @app.get("/")
 def index() -> HTMLResponse:
     return HTMLResponse(FRONTEND.read_text(encoding="utf-8"))
+
+
+@app.get("/api/dependencies")
+def dependencies(repo_path: str) -> dict:
+    """Declared dependencies and their drift. Called directly rather than through
+    the agent -- this is a deterministic lookup with no reasoning to stream."""
+    result = list_dependencies(repo_path)
+    if result.get("status") == "error":
+        return {"error": result["content"][0].get("text", "unknown error")}
+    return result["content"][0]["json"]
 
 
 @app.get("/api/analyze")

@@ -19,12 +19,16 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from agent.tools.changelog import get_changelog
+from agent.tools.changelog import get_changelog, resolve_repo
 from agent.tools.context import get_file_context
+from agent.tools.dependencies import list_dependencies
 from agent.tools.issues import search_github_issues
 from agent.tools.usages import find_usages
+from agent.tools.verdict import post_verdict
 
-FIXTURE_REPO = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "fixtures", "demo_repo")
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+FIXTURE_REPO = os.path.join(_ROOT, "fixtures", "demo_repo")
+CROSSFILE_REPO = os.path.join(_ROOT, "fixtures", "crossfile_repo")
 
 
 def _print(label: str, result: dict) -> None:
@@ -39,6 +43,26 @@ def main() -> None:
 
     fixture_file = os.path.join(FIXTURE_REPO, "api_client.py")
     _print("get_file_context: around the getheader() call", get_file_context(fixture_file, 22, context=3))
+
+    # Cross-file tracking: usage through a shared client defined in another module.
+    cross = find_usages("urllib3", CROSSFILE_REPO)["content"][0]["json"]
+    print("\n=== cross-file tracking ===")
+    print(f"  {cross['total_call_sites']} call sites across {cross['files_using_library']} files")
+    for result in cross["results"]:
+        for inherited in result.get("inherited_from_other_modules", []):
+            print(f"  {os.path.basename(result['file'])}: inherits {inherited['names']} from '{inherited['from_module']}'")
+    assert cross["files_using_library"] >= 3, "expected service.py and pkg/nested.py to be traced via clients.py"
+
+    print("\n=== PyPI -> GitHub resolution (no built-in mapping) ===")
+    for lib in ("fastapi", "pandas", "httpx", "sklearn"):
+        print(f"  {lib:10s} -> {resolve_repo(lib)}")
+
+    _print("list_dependencies: fixture requirements.txt", list_dependencies(FIXTURE_REPO))
+
+    _print(
+        "post_verdict: dry run (nothing is posted)",
+        post_verdict("urllib3", "1.26.15", "2.2.1", "- Line 24: AFFECTED", pr_number=1),
+    )
 
     if os.getenv("GITHUB_TOKEN"):
         _print(

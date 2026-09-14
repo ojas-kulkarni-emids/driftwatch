@@ -45,14 +45,29 @@ _CHANGELOG_PATHS = [
     "CHANGES.rst",
     "CHANGES.md",
     "CHANGELOG",
+    "CHANGELOG.txt",
     "HISTORY.rst",
     "HISTORY.md",
+    "NEWS.rst",
     "docs/changelog.rst",
+    "docs/changelog.md",
     "docs/CHANGELOG.md",
+    "docs/release-notes.md",
+    "docs/en/docs/release-notes.md",  # FastAPI and projects following its docs layout
+    "doc/changelog.rst",
 ]
+
+# Releases come back newest-first. Page until we're safely past the bottom of the
+# requested range rather than assuming it fits in one page -- an actively-released
+# library can have 100+ releases newer than the version you're asking about, which
+# silently returned "no changelog" before this was paginated.
+_MAX_RELEASE_PAGES = 10
 
 _RST_UNDERLINE_CHARS = set("~-=^\"'*+#`")
 
+# Fast path and override list. PyPI resolution (below) handles everything else,
+# but these are kept because they're the demo libraries and because PyPI
+# occasionally points at a mirror or a docs site rather than the real repo.
 _KNOWN_REPOS = {
     "urllib3": "urllib3/urllib3",
     "requests": "psf/requests",
@@ -63,6 +78,134 @@ _KNOWN_REPOS = {
     "django": "django/django",
     "cryptography": "pyca/cryptography",
 }
+
+# find_usages takes the *import* name, which differs from the PyPI package name
+# more often than you'd expect. Only the cases where guessing fails.
+_IMPORT_TO_PYPI = {
+    "yaml": "PyYAML",
+    "cv2": "opencv-python",
+    "sklearn": "scikit-learn",
+    "bs4": "beautifulsoup4",
+    "pil": "pillow",
+    "dateutil": "python-dateutil",
+    "jwt": "PyJWT",
+    "dotenv": "python-dotenv",
+    "attr": "attrs",
+    "openssl": "pyOpenSSL",
+    "serial": "pyserial",
+    "usb": "pyusb",
+    "crypto": "pycryptodome",
+    "pkg_resources": "setuptools",
+    "google": "protobuf",
+    "mpl_toolkits": "matplotlib",
+    "zoneinfo": "backports.zoneinfo",
+}
+
+PYPI_API = "https://pypi.org/pypi/{}/json"
+
+# Project-URL keys that actually point at source, most reliable first. PyPI lets
+# maintainers name these freely, so there's no canonical key to rely on.
+_SOURCE_URL_KEYS = ("source", "source code", "repository", "code", "github", "homepage", "home")
+
+# Paths under github.com that are never a repo.
+_NON_REPO_OWNERS = {"sponsors", "orgs", "features", "about", "pricing", "apps", "marketplace"}
+
+_repo_cache: dict[str, str | None] = {}
+
+
+def _extract_github_repo(url: str) -> str | None:
+    """Pull 'owner/repo' out of any GitHub URL form, or None if it isn't one."""
+    if not url or "github.com" not in url.lower():
+        return None
+    tail = url.split("github.com", 1)[1]
+    tail = tail.lstrip(":/")  # handles both https://github.com/x/y and git@github.com:x/y
+    parts = [p for p in tail.split("?")[0].split("#")[0].split("/") if p]
+    if len(parts) < 2:
+        return None
+    owner, repo = parts[0], parts[1]
+    if repo.endswith(".git"):
+        repo = repo[: -len(".git")]
+    if not owner or not repo or owner.lower() in _NON_REPO_OWNERS:
+        return None
+    return f"{owner}/{repo}"
+
+
+def _pypi_candidates(library: str) -> list[str]:
+    """Package names to try on PyPI for a given import name, best guess first."""
+    lowered = library.lower()
+    candidates = []
+    mapped = _IMPORT_TO_PYPI.get(lowered)
+    if mapped:
+        candidates.append(mapped)
+    candidates.append(library)
+    if "_" in library:
+        candidates.append(library.replace("_", "-"))
+    if "-" in library:
+        candidates.append(library.replace("-", "_"))
+    seen = set()
+    return [c for c in candidates if not (c.lower() in seen or seen.add(c.lower()))]
+
+
+def _resolve_from_pypi(library: str) -> str | None:
+    """Look up a library's GitHub repo via PyPI project metadata."""
+    for name in _pypi_candidates(library):
+        try:
+            resp = http.get(PYPI_API.format(name), timeout=10, headers={"User-Agent": "driftwatch"})
+        except http.RequestException:
+            return None
+        if not resp.ok:
+            continue
+        try:
+            info = resp.json().get("info") or {}
+        except ValueError:
+            continue
+
+        project_urls = {k.lower(): v for k, v in (info.get("project_urls") or {}).items() if v}
+        for key in _SOURCE_URL_KEYS:
+            repo = _extract_github_repo(project_urls.get(key, ""))
+            if repo:
+                return repo
+        # No recognised key matched -- take any project URL that is a GitHub repo.
+        for value in project_urls.values():
+            repo = _extract_github_repo(value)
+            if repo:
+                return repo
+        repo = _extract_github_repo(info.get("home_page") or "")
+        if repo:
+            return repo
+    return None
+
+
+def resolve_repo(library: str, github_repo: str = "") -> str | None:
+    """Resolve a library to 'owner/repo': explicit override, then the built-in
+    map, then PyPI metadata. Results (including failures) are cached per process
+    so a repeated lookup in one agent run costs nothing."""
+    if github_repo:
+        return github_repo
+    key = library.lower()
+    if key in _KNOWN_REPOS:
+        return _KNOWN_REPOS[key]
+    if key in _repo_cache:
+        return _repo_cache[key]
+    resolved = _resolve_from_pypi(library)
+    _repo_cache[key] = resolved
+    return resolved
+
+
+def _unresolved_error(library: str) -> dict:
+    return {
+        "status": "error",
+        "content": [
+            {
+                "text": (
+                    f"Could not resolve a GitHub repo for '{library}'. It wasn't in the built-in map "
+                    f"and PyPI has no GitHub project URL for it (note: find_usages takes the *import* "
+                    f"name, which sometimes differs from the PyPI package name). "
+                    f"Pass github_repo explicitly as 'owner/repo' to continue."
+                )
+            }
+        ],
+    }
 
 
 def _headers() -> dict:
@@ -190,19 +333,9 @@ def get_changelog(library: str, from_version: str, to_version: str, github_repo:
         to_version: The version being proposed, e.g. "2.2.1".
         github_repo: Optional "owner/repo" override if the library isn't in the built-in mapping.
     """
-    repo = github_repo or _KNOWN_REPOS.get(library.lower())
+    repo = resolve_repo(library, github_repo)
     if not repo:
-        return {
-            "status": "error",
-            "content": [
-                {
-                    "text": (
-                        f"No known GitHub repo for '{library}'. Pass github_repo explicitly "
-                        f"(e.g. 'owner/repo') -- v1 only auto-resolves: {', '.join(_KNOWN_REPOS)}."
-                    )
-                }
-            ],
-        }
+        return _unresolved_error(library)
 
     from_v = _normalize(from_version)
     to_v = _normalize(to_version)
@@ -212,37 +345,62 @@ def get_changelog(library: str, from_version: str, to_version: str, github_repo:
             "content": [{"text": f"Could not parse version range {from_version!r} -> {to_version!r}."}],
         }
 
-    try:
-        resp = http.get(f"{GITHUB_API}/repos/{repo}/releases", headers=_headers(), params={"per_page": 100}, timeout=15)
-    except http.RequestException as e:
-        return {"status": "error", "content": [{"text": f"Could not reach GitHub: {e}"}]}
-
-    if resp.status_code == 403:
-        return {
-            "status": "error",
-            "content": [{"text": "GitHub API rate-limited (403). Set GITHUB_TOKEN -- unauthenticated is 60/hr and shared per IP."}],
-        }
-    if not resp.ok:
-        return {"status": "error", "content": [{"text": f"GitHub returned HTTP {resp.status_code}: {resp.text[:300]}"}]}
-
     in_range = []
     unparseable_tags = []
-    for r in resp.json():
-        v = _normalize(r["tag_name"])
-        if v is None:
-            unparseable_tags.append(r["tag_name"])
-            continue
-        if from_v < v <= to_v:
-            in_range.append(
-                {
-                    "tag": r["tag_name"],
-                    "name": r.get("name"),
-                    "published_at": r.get("published_at"),
-                    "prerelease": r.get("prerelease", False),
-                    "body": r.get("body") or "(no release notes written for this tag)",
-                    "html_url": r.get("html_url"),
-                }
+    pages_fetched = 0
+    reached_bottom = False
+
+    for page in range(1, _MAX_RELEASE_PAGES + 1):
+        try:
+            resp = http.get(
+                f"{GITHUB_API}/repos/{repo}/releases",
+                headers=_headers(),
+                params={"per_page": 100, "page": page},
+                timeout=15,
             )
+        except http.RequestException as e:
+            return {"status": "error", "content": [{"text": f"Could not reach GitHub: {e}"}]}
+
+        if resp.status_code == 403:
+            return {
+                "status": "error",
+                "content": [{"text": "GitHub API rate-limited (403). Set GITHUB_TOKEN -- unauthenticated is 60/hr and shared per IP."}],
+            }
+        if not resp.ok:
+            return {"status": "error", "content": [{"text": f"GitHub returned HTTP {resp.status_code}: {resp.text[:300]}"}]}
+
+        batch = resp.json()
+        pages_fetched = page
+        if not batch:
+            reached_bottom = True
+            break
+
+        for r in batch:
+            v = _normalize(r["tag_name"])
+            if v is None:
+                unparseable_tags.append(r["tag_name"])
+                continue
+            if from_v < v <= to_v:
+                in_range.append(
+                    {
+                        "tag": r["tag_name"],
+                        "name": r.get("name"),
+                        "published_at": r.get("published_at"),
+                        "prerelease": r.get("prerelease", False),
+                        "body": r.get("body") or "(no release notes written for this tag)",
+                        "html_url": r.get("html_url"),
+                    }
+                )
+
+        # Releases are newest-first, so once a page contains anything at or below
+        # from_version we've covered the whole range and can stop paging.
+        if any((v := _normalize(r["tag_name"])) is not None and v <= from_v for r in batch):
+            reached_bottom = True
+            break
+        if len(batch) < 100:
+            reached_bottom = True
+            break
+
     in_range.sort(key=lambda r: r["published_at"] or "")
 
     result = {
@@ -254,6 +412,11 @@ def get_changelog(library: str, from_version: str, to_version: str, github_repo:
         "release_count": len(in_range),
         "unparseable_tags_skipped": unparseable_tags,
     }
+    if not reached_bottom:
+        result["truncated"] = (
+            f"Stopped after {pages_fetched} pages ({pages_fetched * 100} releases) without reaching "
+            f"{from_version}. Older releases in the range may be missing."
+        )
 
     if in_range:
         return {"status": "success", "content": [{"json": result}]}

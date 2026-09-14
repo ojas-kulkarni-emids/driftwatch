@@ -33,14 +33,55 @@ import os
 from strands import tool
 
 
+def module_name_for(root: str, path: str) -> str:
+    """Map a file path to its dotted module name relative to the repo root.
+
+    `<root>/pkg/clients.py` -> `pkg.clients`; `<root>/pkg/__init__.py` -> `pkg`.
+    """
+    rel = os.path.relpath(path, root).replace("\\", "/")
+    parts = [p for p in rel.split("/") if p]
+    if not parts:
+        return ""
+    if parts[-1] == "__init__.py":
+        parts = parts[:-1]
+    elif parts[-1].endswith(".py"):
+        parts[-1] = parts[-1][:-3]
+    return ".".join(parts)
+
+
+def _resolve_relative_module(current_module: str, is_package: bool, level: int, module: str | None) -> str | None:
+    """Resolve `from ..pkg import x` to an absolute intra-repo module name."""
+    parts = current_module.split(".") if current_module else []
+    # For a package's __init__.py the module name IS the package, so level 1
+    # stays put; for a plain module, level 1 means its containing package.
+    base = parts if is_package else parts[:-1]
+    climb = level - 1
+    if climb > len(base):
+        return None
+    base = base[: len(base) - climb] if climb else base
+    full = base + ([module] if module else [])
+    return ".".join(p for p in full if p) or None
+
+
 class _ImportTracker(ast.NodeVisitor):
-    def __init__(self, library: str):
+    def __init__(
+        self,
+        library: str,
+        exports: dict[str, dict[str, str]] | None = None,
+        module_name: str = "",
+        is_package: bool = False,
+    ):
         self.library = library
         self.top_level_aliases: set[str] = set()  # bound to the module itself, e.g. `requests`, `req`
         self.imported_names: dict[str, str] = {}  # bound name -> qualified name, e.g. `get` -> "requests.get"
         self.instance_vars: dict[str, str] = {}  # local var -> best-effort label, e.g. `http` -> "urllib3.PoolManager"
         self.imports: list[dict] = []
         self._seen: dict[tuple[int, int], dict] = {}
+        # Pass-2 inputs: what other modules in this repo export, and who we are.
+        self.exports = exports or {}
+        self.module_name = module_name
+        self.is_package = is_package
+        self.inherited: list[dict] = []  # cross-file lineage picked up from a sibling module
 
     def _is_library_module(self, modname: str) -> bool:
         return modname == self.library or modname.startswith(self.library + ".")
@@ -61,6 +102,32 @@ class _ImportTracker(ast.NodeVisitor):
                 self.imported_names[bound] = f"{node.module}.{alias.name}"
                 names.append(alias.name + (f" as {alias.asname}" if alias.asname else ""))
             self.imports.append({"line": node.lineno, "statement": f"from {node.module} import {', '.join(names)}"})
+            self.generic_visit(node)
+            return
+
+        # Not the library itself -- but it may be a module in THIS repo that holds
+        # something built from the library (`from clients import http`). Without
+        # this, the near-universal shared-client pattern is invisible.
+        if self.exports:
+            target = (
+                _resolve_relative_module(self.module_name, self.is_package, node.level, node.module)
+                if node.level
+                else node.module
+            )
+            exported = self.exports.get(target or "")
+            if exported:
+                names = []
+                for alias in node.names:
+                    lineage = exported.get(alias.name)
+                    if not lineage:
+                        continue
+                    bound = alias.asname or alias.name
+                    self.instance_vars[bound] = lineage
+                    names.append(alias.name + (f" as {alias.asname}" if alias.asname else ""))
+                if names:
+                    statement = f"from {target} import {', '.join(names)}"
+                    self.imports.append({"line": node.lineno, "statement": statement, "via": target})
+                    self.inherited.append({"line": node.lineno, "from_module": target, "names": names})
         self.generic_visit(node)
 
     def _resolve(self, node: ast.expr) -> str | None:
@@ -117,19 +184,54 @@ def _snippet(lines: list[str], start_line: int, end_line: int) -> str:
     return "\n".join(lines[start_line - 1 : end_line]).strip()
 
 
-def _scan_file(path: str, library: str) -> dict | None:
+def _read_and_parse(path: str) -> tuple[str, ast.Module] | dict:
     try:
         with open(path, "r", encoding="utf-8", errors="replace") as f:
             source = f.read()
     except OSError as e:
         return {"file": path, "error": str(e)}
-
     try:
-        tree = ast.parse(source, filename=path)
+        return source, ast.parse(source, filename=path)
     except SyntaxError as e:
         return {"file": path, "error": f"SyntaxError: {e}"}
 
+
+def _collect_exports(tree: ast.Module, library: str) -> dict[str, str]:
+    """Module-level names in this file that trace back to the library.
+
+    Only module level: a name bound inside a function can't be imported by
+    another module, so including those would invent cross-file links that
+    don't exist.
+    """
     tracker = _ImportTracker(library)
+    tracker.visit(tree)
+    exported = dict(tracker.imported_names)  # re-exported symbols, e.g. `from urllib3 import PoolManager`
+    for node in tree.body:
+        if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Call):
+            continue
+        lineage = tracker._resolve(node.value.func)
+        if not lineage:
+            continue
+        for target in node.targets:
+            if isinstance(target, ast.Name):
+                exported[target.id] = lineage
+    return exported
+
+
+def _scan_file(
+    path: str,
+    library: str,
+    exports: dict[str, dict[str, str]] | None = None,
+    module_name: str = "",
+    is_package: bool = False,
+    parsed: tuple[str, ast.Module] | None = None,
+) -> dict | None:
+    outcome = parsed or _read_and_parse(path)
+    if isinstance(outcome, dict):
+        return outcome
+    source, tree = outcome
+
+    tracker = _ImportTracker(library, exports=exports, module_name=module_name, is_package=is_package)
     tracker.visit(tree)
     if not tracker.imports:
         return None  # file doesn't import this library at all -- not worth reporting
@@ -158,7 +260,10 @@ def _scan_file(path: str, library: str) -> dict | None:
         for e in by_line.values()
     ]
 
-    return {"file": path, "imports": tracker.imports, "call_sites": call_sites}
+    result = {"file": path, "imports": tracker.imports, "call_sites": call_sites}
+    if tracker.inherited:
+        result["inherited_from_other_modules"] = tracker.inherited
+    return result
 
 
 @tool
@@ -180,42 +285,103 @@ def find_usages(library: str, repo_path: str, max_files: int = 500) -> dict:
     if not os.path.isdir(repo_path):
         return {"status": "error", "content": [{"text": f"repo_path does not exist or is not a directory: {repo_path}"}]}
 
-    results = []
-    errors = []
-    files_scanned = 0
-
+    # Collect the file list first so truncation is reported rather than silent.
+    all_files: list[str] = []
     for root, dirnames, filenames in os.walk(repo_path):
-        dirnames[:] = [d for d in dirnames if d not in (".git", "__pycache__", ".venv", "venv", "node_modules")]
-        for filename in filenames:
-            if not filename.endswith(".py"):
-                continue
-            if files_scanned >= max_files:
-                break
-            files_scanned += 1
-            full_path = os.path.join(root, filename)
-            outcome = _scan_file(full_path, library)
-            if outcome is None:
-                continue
-            if "error" in outcome:
-                errors.append(outcome)
-            else:
-                results.append(outcome)
+        dirnames[:] = [d for d in dirnames if d not in (".git", "__pycache__", ".venv", "venv", "node_modules", ".tox", "build", "dist", "site-packages")]
+        all_files.extend(os.path.join(root, f) for f in filenames if f.endswith(".py"))
+
+    total_py_files = len(all_files)
+    truncated = total_py_files > max_files
+    files = all_files[:max_files]
+
+    errors = []
+    sources: dict[str, str] = {}
+    for path in files:
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                sources[path] = f.read()
+        except OSError as e:
+            errors.append({"file": path, "error": str(e)})
+
+    # Parsing and walking every file twice is the dominant cost on a large tree
+    # (measured: 67s over 4,000 files). A file can only import the library if its
+    # source literally contains the library's name, so filtering on raw text
+    # first is sound and skips the overwhelming majority of files.
+    parsed_files: dict[str, tuple[str, ast.Module]] = {}
+
+    def _parse(path: str) -> tuple[str, ast.Module] | None:
+        if path in parsed_files:
+            return parsed_files[path]
+        try:
+            tree = ast.parse(sources[path], filename=path)
+        except SyntaxError as e:
+            errors.append({"file": path, "error": f"SyntaxError: {e}"})
+            return None
+        parsed_files[path] = (sources[path], tree)
+        return parsed_files[path]
+
+    # Pass 1 -- what does each module export that traces back to the library?
+    # Only files naming the library directly can export such a thing.
+    exports: dict[str, dict[str, str]] = {}
+    for path, source in sources.items():
+        if library not in source:
+            continue
+        parsed = _parse(path)
+        if parsed is None:
+            continue
+        exported = _collect_exports(parsed[1], library)
+        if exported:
+            exports[module_name_for(repo_path, path)] = exported
+
+    # Pass 2 -- files naming the library, plus files importing from a module that
+    # exports it (the cross-file case, where the library is never named locally).
+    exporting_tails = {m.split(".")[-1] for m in exports}
+    candidates = [
+        path
+        for path, source in sources.items()
+        if library in source or any(tail in source for tail in exporting_tails)
+    ]
+
+    results = []
+    for path in candidates:
+        parsed = _parse(path)
+        if parsed is None:
+            continue
+        outcome = _scan_file(
+            path,
+            library,
+            exports=exports,
+            module_name=module_name_for(repo_path, path),
+            is_package=os.path.basename(path) == "__init__.py",
+            parsed=parsed,
+        )
+        if outcome is None:
+            continue
+        if "error" in outcome:
+            errors.append(outcome)
+        else:
+            results.append(outcome)
+
+    results.sort(key=lambda r: r["file"])
 
     total_call_sites = sum(len(r["call_sites"]) for r in results)
 
-    return {
-        "status": "success",
-        "content": [
-            {
-                "json": {
-                    "library": library,
-                    "repo_path": repo_path,
-                    "files_scanned": files_scanned,
-                    "files_using_library": len(results),
-                    "total_call_sites": total_call_sites,
-                    "results": results,
-                    "errors": errors,
-                }
-            }
-        ],
+    payload = {
+        "library": library,
+        "repo_path": repo_path,
+        "files_scanned": len(files),
+        "total_python_files": total_py_files,
+        "files_using_library": len(results),
+        "total_call_sites": total_call_sites,
+        "results": results,
+        "errors": errors,
     }
+    if truncated:
+        payload["truncated"] = (
+            f"Only the first {max_files} of {total_py_files} Python files were scanned "
+            f"(max_files cap). Usages in the remaining {total_py_files - max_files} files were "
+            f"NOT checked -- do not treat this as a complete result. Raise max_files to scan all."
+        )
+
+    return {"status": "success", "content": [{"json": payload}]}
